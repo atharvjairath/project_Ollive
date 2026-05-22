@@ -11,7 +11,7 @@ hf_cache = modal.Volume.from_name("qwen-hf-cache", create_if_missing=True)
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("git")
-    .pip_install("torch", index_url="https://download.pytorch.org/whl/cpu")
+    .pip_install("torch")
     .pip_install_from_requirements("requirements-deploy.txt")
     .env({"HF_HOME": MODEL_CACHE_PATH})
     .add_local_python_source("app")
@@ -35,6 +35,7 @@ def download_model() -> None:
     volumes={MODEL_CACHE_PATH: hf_cache},
     timeout=20 * 60,
     scaledown_window=10 * 60,
+    gpu="T4",
 )
 @modal.concurrent(max_inputs=10)
 @modal.asgi_app()

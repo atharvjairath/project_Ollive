@@ -117,6 +117,15 @@ def estimate_token_count(text: str) -> int:
     return max(1, round(len(text) / 4))
 
 
+def oss_device_index() -> int | None:
+    try:
+        import torch
+
+        return 0 if torch.cuda.is_available() else None
+    except Exception:
+        return None
+
+
 @lru_cache(maxsize=4)
 def build_llm(
     backend: str,
@@ -131,6 +140,7 @@ def build_llm(
             model_id=model_name,
             task="text-generation",
             backend="pipeline",
+            device=oss_device_index(),
             pipeline_kwargs={
                 "max_new_tokens": max_tokens,
                 "do_sample": temperature > 0,
