@@ -4,6 +4,7 @@ import argparse
 import os
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -80,6 +81,11 @@ def clean_model_output(text: str) -> str:
     text = text.replace("<|im_end|>", "").replace("<|im_start|>", "")
     text = re.sub(r"^(assistant|system|user)\s*", "", text.strip(), flags=re.IGNORECASE)
     return text.strip()
+
+
+def estimate_token_count(text: str) -> int:
+    """Provider-agnostic fallback for rough output throughput reporting."""
+    return max(1, round(len(text) / 4))
 
 
 @lru_cache(maxsize=4)
@@ -221,6 +227,28 @@ def render_streamlit_ui() -> None:
         max_tokens = st.slider("Max tokens", 256, 4096, 1024, step=128)
         temperature = st.slider("Temperature", 0.0, 1.5, 0.7, step=0.1)
 
+        latencies = [
+            message["latency_ms"]
+            for message in st.session_state.messages
+            if message.get("role") == "assistant" and message.get("latency_ms") is not None
+        ]
+        tokens_per_second = [
+            message["tokens_per_second"]
+            for message in st.session_state.messages
+            if message.get("role") == "assistant"
+            and message.get("tokens_per_second") is not None
+        ]
+        if latencies:
+            st.divider()
+            st.metric("Last latency", f"{latencies[-1] / 1000:.2f}s")
+            st.metric("Average latency", f"{sum(latencies) / len(latencies) / 1000:.2f}s")
+        if tokens_per_second:
+            st.metric("Last tokens/sec", f"{tokens_per_second[-1]:.1f}")
+            st.metric(
+                "Average tokens/sec",
+                f"{sum(tokens_per_second) / len(tokens_per_second):.1f}",
+            )
+
         if st.button("Clear chat", use_container_width=True):
             st.session_state.messages = []
             st.rerun()
@@ -233,6 +261,10 @@ def render_streamlit_ui() -> None:
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
+            if message["role"] == "assistant" and message.get("latency_ms") is not None:
+                st.caption(f"Response time: {message['latency_ms'] / 1000:.2f}s")
+            if message["role"] == "assistant" and message.get("tokens_per_second") is not None:
+                st.caption(f"Output speed: {message['tokens_per_second']:.1f} tokens/sec")
 
     if prompt := st.chat_input("Ask the assistant..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
@@ -241,6 +273,7 @@ def render_streamlit_ui() -> None:
 
         with st.chat_message("assistant"):
             with st.spinner("Thinking"):
+                start = time.perf_counter()
                 try:
                     answer = answer_from_history(
                         prompt,
@@ -254,9 +287,22 @@ def render_streamlit_ui() -> None:
                     )
                 except Exception as exc:
                     answer = f"Error: {exc}"
+                latency_ms = round((time.perf_counter() - start) * 1000)
+                output_tokens = estimate_token_count(answer)
+                tokens_per_second = output_tokens / max(latency_ms / 1000, 0.001)
                 st.markdown(answer)
+                st.caption(f"Response time: {latency_ms / 1000:.2f}s")
+                st.caption(f"Output speed: {tokens_per_second:.1f} tokens/sec")
 
-        st.session_state.messages.append({"role": "assistant", "content": answer})
+        st.session_state.messages.append(
+            {
+                "role": "assistant",
+                "content": answer,
+                "latency_ms": latency_ms,
+                "output_tokens": output_tokens,
+                "tokens_per_second": tokens_per_second,
+            }
+        )
         st.session_state.messages = st.session_state.messages[-max_turns * 2 :]
 
 
