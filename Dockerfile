@@ -3,9 +3,6 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV UV_LINK_MODE=copy
-ENV STREAMLIT_SERVER_HEADLESS=true
-ENV STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
-ENV STREAMLIT_SERVER_FILE_WATCHER_TYPE=none
 ENV HF_HOME=/data/huggingface
 
 WORKDIR /app
@@ -27,4 +24,4 @@ COPY . .
 
 EXPOSE 7860
 
-CMD ["uv", "run", "python", "app.py", "--ui", "--server-name", "0.0.0.0", "--server-port", "7860"]
+CMD ["uv", "run", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]

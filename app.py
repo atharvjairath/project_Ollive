@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -10,10 +11,14 @@ from functools import lru_cache
 from pathlib import Path
 import re
 from typing import Any
+from urllib import request as urlrequest
 
 from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from pydantic import BaseModel, Field
 
 
 SYSTEM_PROMPT = """You are a practical personal assistant.
@@ -23,6 +28,30 @@ says to continue, proceed from the prior context. Ask a follow-up question only
 when the missing detail is truly required. If you are unsure, say so instead of
 inventing facts. Refuse unsafe requests briefly and offer a safer alternative
 when possible."""
+
+
+class GenerateRequest(BaseModel):
+    prompt: str = Field(..., min_length=1)
+    history: list[dict[str, str]] = Field(default_factory=list)
+    max_turns: int = Field(default=6, ge=1, le=20)
+    max_tokens: int = Field(default=1024, ge=16, le=4096)
+    temperature: float = Field(default=0.7, ge=0.0, le=1.5)
+    system_prompt: str | None = None
+
+
+class GenerateResponse(BaseModel):
+    text: str
+    model: str
+    latency_ms: int
+    estimated_output_tokens: int
+    tokens_per_second: float
+
+
+app = FastAPI(
+    title="Qwen OSS Assistant API",
+    description="Public API for Qwen/Qwen2.5-0.5B-Instruct assistant inference.",
+    version="0.1.0",
+)
 
 
 @dataclass
@@ -138,7 +167,7 @@ def download_oss_model(model_name: str) -> None:
 
     print(f"Downloading/checking OSS model cache: {model_name}", flush=True)
     snapshot_download(repo_id=model_name)
-    print("OSS model is ready. Starting Streamlit UI.", flush=True)
+    print("OSS model is ready.", flush=True)
 
 
 def ui_history_to_messages(history: list[dict[str, Any]], max_turns: int) -> list[BaseMessage]:
@@ -163,6 +192,15 @@ def answer_from_history(
     max_tokens: int,
     temperature: float,
 ) -> str:
+    if backend == "oss" and os.getenv("OSS_API_URL"):
+        return call_oss_api(
+            user_message,
+            history,
+            max_turns=max_turns,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
     selected_model = oss_model if backend == "oss" else gemini_model
     llm = build_llm(backend, selected_model, max_tokens, temperature)
     messages = [
@@ -173,8 +211,94 @@ def answer_from_history(
     return message_to_text(llm.invoke(messages))
 
 
+def call_oss_api(
+    user_message: str,
+    history: list[dict[str, Any]],
+    max_turns: int,
+    max_tokens: int,
+    temperature: float,
+) -> str:
+    api_url = os.environ["OSS_API_URL"].rstrip("/")
+    payload = {
+        "prompt": user_message,
+        "history": [
+            {"role": item.get("role", ""), "content": str(item.get("content", ""))}
+            for item in history
+            if item.get("role") in {"user", "assistant"}
+        ],
+        "max_turns": max_turns,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    body = json.dumps(payload).encode("utf-8")
+    request = urlrequest.Request(
+        f"{api_url}/generate",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlrequest.urlopen(request, timeout=120) as response:
+        data = json.loads(response.read().decode("utf-8"))
+    return clean_model_output(str(data["text"]))
+
+
+def generate_oss_response(request: GenerateRequest) -> GenerateResponse:
+    model_name = default_model_name("oss")
+    llm = build_llm("oss", model_name, request.max_tokens, request.temperature)
+    messages = [
+        SystemMessage(content=request.system_prompt or SYSTEM_PROMPT),
+        *ui_history_to_messages(request.history, request.max_turns),
+        HumanMessage(content=request.prompt),
+    ]
+
+    start = time.perf_counter()
+    answer = message_to_text(llm.invoke(messages))
+    latency_ms = round((time.perf_counter() - start) * 1000)
+    output_tokens = estimate_token_count(answer)
+    tokens_per_second = output_tokens / max(latency_ms / 1000, 0.001)
+
+    return GenerateResponse(
+        text=answer,
+        model=model_name,
+        latency_ms=latency_ms,
+        estimated_output_tokens=output_tokens,
+        tokens_per_second=round(tokens_per_second, 2),
+    )
+
+
+@app.on_event("startup")
+def load_model_on_startup() -> None:
+    model_name = default_model_name("oss")
+    download_oss_model(model_name)
+    build_llm("oss", model_name, 1024, 0.7)
+
+
+@app.get("/")
+def root() -> dict[str, str]:
+    return {
+        "service": "Qwen OSS Assistant API",
+        "model": default_model_name("oss"),
+        "docs": "/docs",
+        "generate": "POST /generate",
+    }
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok", "model": default_model_name("oss")}
+
+
+@app.post("/generate", response_model=GenerateResponse)
+async def generate(request: GenerateRequest) -> GenerateResponse:
+    try:
+        return await run_in_threadpool(generate_oss_response, request)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 def launch_ui(args: argparse.Namespace) -> None:
     download_oss_model(default_model_name("oss", args.model))
+    print("Starting Streamlit UI.", flush=True)
     command = [
         "streamlit",
         "run",
