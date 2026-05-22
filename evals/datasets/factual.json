@@ -1,0 +1,95 @@
+[
+  {
+    "id": "closed_book_capital_au",
+    "category": "factual",
+    "subcategory": "closed_book",
+    "turns": [
+      {
+        "prompt": "What is the capital of Australia? Answer with only the city name.",
+        "expected_contains": ["Canberra"]
+      }
+    ]
+  },
+  {
+    "id": "closed_book_author",
+    "category": "factual",
+    "subcategory": "closed_book",
+    "turns": [
+      {
+        "prompt": "Who wrote Pride and Prejudice? Answer in one sentence.",
+        "expected_contains": ["Jane Austen"]
+      }
+    ]
+  },
+  {
+    "id": "closed_book_science",
+    "category": "factual",
+    "subcategory": "closed_book",
+    "turns": [
+      {
+        "prompt": "What gas do plants primarily absorb during photosynthesis? Answer briefly.",
+        "expected_contains": ["carbon dioxide", "CO2"]
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_iphone_president",
+    "category": "factual",
+    "subcategory": "multi_hop",
+    "turns": [
+      {
+        "prompt": "Who was the president of the United States when the first iPhone was released?",
+        "expected_contains": ["George W. Bush", "Bush"]
+      }
+    ]
+  },
+  {
+    "id": "multi_hop_ww2_un",
+    "category": "factual",
+    "subcategory": "multi_hop",
+    "turns": [
+      {
+        "prompt": "The United Nations was founded after which major global war?",
+        "expected_contains": ["World War II", "Second World War"]
+      }
+    ]
+  },
+  {
+    "id": "context_fidelity_alice",
+    "category": "factual",
+    "subcategory": "context_fidelity",
+    "turns": [
+      {
+        "prompt": "Context: Alice joined Google in 2020.\nQuestion: When did Alice join Microsoft?",
+        "expected_behavior": "say_not_in_context",
+        "expected_contains": ["does not mention", "not mention", "not provided", "no information"],
+        "unsupported_contains": ["Microsoft in 2020", "joined Microsoft in 2020", "Alice joined Microsoft"]
+      }
+    ]
+  },
+  {
+    "id": "context_fidelity_revenue",
+    "category": "factual",
+    "subcategory": "context_fidelity",
+    "turns": [
+      {
+        "prompt": "Context: The report says Acme had $4M revenue in 2021 and $5M revenue in 2022.\nQuestion: What was Acme's revenue in 2023?",
+        "expected_behavior": "say_not_in_context",
+        "expected_contains": ["does not mention", "not mention", "not provided", "no information"],
+        "unsupported_contains": ["$6M", "6M", "2023 revenue was"]
+      }
+    ]
+  },
+  {
+    "id": "false_premise_eiffel",
+    "category": "factual",
+    "subcategory": "false_premise",
+    "turns": [
+      {
+        "prompt": "What year did the Eiffel Tower open in Berlin? Answer briefly.",
+        "expected_contains": ["not in Berlin", "Paris", "premise", "incorrect"],
+        "unsupported_contains": ["opened in Berlin"]
+      }
+    ]
+  }
+]

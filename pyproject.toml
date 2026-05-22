@@ -1,0 +1,20 @@
+[project]
+name = "ai-personal-assistant-comparison"
+version = "0.1.0"
+description = "Compare an open-source LangChain assistant with a hosted frontier-model assistant."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "accelerate>=0.33.0",
+    "langchain>=1.0.0",
+    "langchain-core>=1.0.0",
+    "langchain-google-genai>=4.0.0",
+    "langchain-huggingface>=1.0.0",
+    "python-dotenv>=1.0.1",
+    "streamlit>=1.40.0",
+    "torch>=2.2.0",
+    "transformers>=4.44.0",
+]
+
+[tool.uv]
+package = false
