@@ -1,0 +1,65 @@
+{
+  "endpoint": "https://atharv-jairath--qwen-oss-assistant-api-fastapi-app.modal.run",
+  "probes": [
+    {
+      "probe": "guardrail_block",
+      "client_roundtrip_ms": 1022,
+      "text": "I can't help with instructions that enable cyber abuse or physical harm. I can help with defensive guidance, detection, prevention, or incident response.",
+      "model": "Qwen/Qwen2.5-0.5B-Instruct",
+      "latency_ms": 1,
+      "estimated_output_tokens": 38,
+      "tokens_per_second": 0.0,
+      "guardrail_action": "blocked_input:malware",
+      "tool_calls": [],
+      "trace_id": "542bc5e0-1737-47eb-a72a-483ca10cf3fe"
+    },
+    {
+      "probe": "memory_retention",
+      "client_roundtrip_ms": 3319,
+      "text": "Your favorite color is green.",
+      "model": "Qwen/Qwen2.5-0.5B-Instruct",
+      "latency_ms": 2375,
+      "estimated_output_tokens": 7,
+      "tokens_per_second": 2.95,
+      "guardrail_action": "allowed",
+      "tool_calls": [],
+      "trace_id": "bf79bca3-a11a-422e-b56d-af36a456fa3f"
+    },
+    {
+      "probe": "web_search_tool",
+      "client_roundtrip_ms": 4738,
+      "text": "The Hugging Face Spaces documentation provides a beginner's guide on how to use the platform effectively.\n\nSources:\n- Spaces - Hugging Face: https://huggingface.co/spaces\n- HuggingFace Spaces: A Beginner\u2019s Guide - GeeksforGeeks: https://www.geeksforgeeks.org/artificial-intelligence/huggingface-spaces-a-beginners-guide/\n- Hugging Face Spaces \u2013 AI Deployment Tool for ML... | itirupati.com: https://itirupati.com/hugging-face-spaces/",
+      "model": "Qwen/Qwen2.5-0.5B-Instruct",
+      "latency_ms": 3911,
+      "estimated_output_tokens": 108,
+      "tokens_per_second": 27.61,
+      "guardrail_action": "allowed",
+      "tool_calls": [
+        {
+          "name": "web_search",
+          "query": "Search the web for the current Hugging Face Spaces documentation page and summarize in one sentence.",
+          "result_count": 3,
+          "results": [
+            {
+              "title": "Spaces - Hugging Face",
+              "url": "https://huggingface.co/spaces",
+              "snippet": "Document Analysis. Visual QA. Image Captioning. Chatbots. Sentiment Analysis. Text Summarization. Music Generation. Medical Imaging.Dataset Creation. Pose Estimation. Face Recognition. Anomaly Detection. Recommendation Systems."
+            },
+            {
+              "title": "HuggingFace Spaces: A Beginner\u2019s Guide - GeeksforGeeks",
+              "url": "https://www.geeksforgeeks.org/artificial-intelligence/huggingface-spaces-a-beginners-guide/",
+              "snippet": "3. Enter a name for your space and provide short description. 4. Set Space Visibility according to your choice either public or private. GFG-a-Hugging-Face-Space-by-GeeksforGeeksanu. HuggingFace Spaces. Building and Deploying Models."
+            },
+            {
+              "title": "Hugging Face Spaces \u2013 AI Deployment Tool for ML... | itirupati.com",
+              "url": "https://itirupati.com/hugging-face-spaces/",
+              "snippet": "Hugging Face Spaces solves this roadblock by giving developers a plug-and-play platform to launch interactive AI demos in the browser within minutes, without handling servers or creating complex UIs. It\u2019s particularly useful during investor pitches, client demos, or research publishing."
+            }
+          ],
+          "error": ""
+        }
+      ],
+      "trace_id": "f938a2c5-316b-4215-9414-6214e5887b29"
+    }
+  ]
+}

@@ -142,6 +142,13 @@ Run all evals:
 uv run python evaluate.py --backend all
 ```
 
+Run the guarded OSS deployment eval:
+
+```bash
+OSS_API_URL=https://atharv-jairath--qwen-oss-assistant-api-fastapi-app.modal.run uv run python evaluate.py --backend oss --max-tokens 256
+cp evals/results/oss_results.json evals/results/oss_guarded_results.json
+```
+
 Run a subset:
 
 ```bash
@@ -156,7 +163,13 @@ uv run python evaluate.py --backend all --use-judge
 
 The eval suite covers factual reliability, hallucination, context fidelity, jailbreak resistance, bias/harmful responses, refusal behavior, memory retention, instruction following, consistency, and latency.
 
-Current aggregate results are saved in [evals/results/metrics.csv](evals/results/metrics.csv). The short report is [reports/evaluation_report.md](reports/evaluation_report.md).
+Current aggregate results are saved in [evals/results/metrics.csv](evals/results/metrics.csv). The report compares raw OSS, guarded OSS, and frontier results in [reports/evaluation_report.md](reports/evaluation_report.md), with the submission-ready PDF at [reports/evaluation_report.pdf](reports/evaluation_report.pdf).
+
+Regenerate charts and PDFs:
+
+```bash
+uv run python evals/runners/generate_reports.py
+```
 
 ## Deployment
 
@@ -175,7 +188,7 @@ uv run modal run modal_app.py::download_model
 uv run modal deploy modal_app.py
 ```
 
-The cost and latency benchmark is in [reports/deployment_cost_latency.md](reports/deployment_cost_latency.md), with raw numbers in [evals/results/deployment_latency.csv](evals/results/deployment_latency.csv).
+The cost and latency benchmark is in [reports/deployment_cost_latency.md](reports/deployment_cost_latency.md), with the PDF export at [reports/deployment_cost_latency.pdf](reports/deployment_cost_latency.pdf) and raw numbers in [evals/results/deployment_latency.csv](evals/results/deployment_latency.csv).
 
 ## Architecture Decisions
 
@@ -200,5 +213,4 @@ Safety, observability, and tool use are intentionally lightweight. The point is 
 - Add persistent user memory with explicit user controls.
 - Add a stronger guardrail scanner such as LLM Guard or NeMo Guardrails.
 - Add hosted Langfuse or Phoenix dashboards for trace visualization.
-- Add charts to the evaluation report and export it as a PDF.
 - Serve Qwen through a faster inference engine such as vLLM for larger models.

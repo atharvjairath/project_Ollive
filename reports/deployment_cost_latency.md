@@ -74,6 +74,12 @@ Sources:
 | Modal CPU | Usage-based CPU + memory | `7.41s` | `5.87s` | `30.10s` | `3.38` |
 | Modal T4 GPU | `$0.000164/sec` GPU time + CPU/memory | `1.61s` | `0.42s` | `8.63s` | `30.32` |
 
+![Deployment latency](charts/deployment_latency.png)
+
+![Deployment throughput](charts/deployment_tokens_per_second.png)
+
+PDF export: `reports/deployment_cost_latency.pdf`
+
 ## Warm Path Results
 
 The first request can include container/model warmup effects. Warm path excludes the first request per deployment.
