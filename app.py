@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import subprocess
 import sys
 import time
+import uuid
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -18,6 +20,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
 from pydantic import BaseModel, Field
 
 
@@ -30,6 +37,31 @@ inventing facts. Refuse unsafe requests briefly and offer a safer alternative
 when possible."""
 
 
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+logger = logging.getLogger("oss_assistant_api")
+logging.getLogger("primp").setLevel(logging.WARNING)
+
+
+def configure_observability() -> None:
+    resource = Resource.create({"service.name": os.getenv("OTEL_SERVICE_NAME", "oss-assistant-api")})
+    provider = TracerProvider(resource=resource)
+    otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+
+    if otlp_endpoint:
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint)))
+    elif os.getenv("ENABLE_CONSOLE_TRACING", "").lower() == "true":
+        provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
+
+    try:
+        trace.set_tracer_provider(provider)
+    except Exception:
+        pass
+
+
+configure_observability()
+tracer = trace.get_tracer("oss_assistant_api")
+
+
 class GenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1)
     history: list[dict[str, str]] = Field(default_factory=list)
@@ -37,6 +69,7 @@ class GenerateRequest(BaseModel):
     max_tokens: int = Field(default=1024, ge=16, le=4096)
     temperature: float = Field(default=0.7, ge=0.0, le=1.5)
     system_prompt: str | None = None
+    enable_web_search: bool = False
 
 
 class GenerateResponse(BaseModel):
@@ -45,6 +78,16 @@ class GenerateResponse(BaseModel):
     latency_ms: int
     estimated_output_tokens: int
     tokens_per_second: float
+    guardrail_action: str = "allowed"
+    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
+    trace_id: str | None = None
+
+
+@dataclass(frozen=True)
+class GuardrailResult:
+    allowed: bool
+    action: str
+    message: str = ""
 
 
 app = FastAPI(
@@ -115,6 +158,105 @@ def clean_model_output(text: str) -> str:
 def estimate_token_count(text: str) -> int:
     """Provider-agnostic fallback for rough output throughput reporting."""
     return max(1, round(len(text) / 4))
+
+
+INPUT_RAILS = [
+    (
+        "malware",
+        re.compile(
+            r"(?=.*\b(ransomware|malware|keylogger|credential stealer|reverse shell|botnet)\b)"
+            r"(?=.*\b(make|build|write|code|create|deploy|instructions?|steps?|explain how)\b)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "credential_theft",
+        re.compile(
+            r"\b(phishing|steal passwords?|bypass login|credential stuffing|session hijack)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "weapons",
+        re.compile(
+            r"\b(make|build|instructions?|recipe)\b.*\b(explosive|bomb|poison|weapon)\b",
+            re.IGNORECASE,
+        ),
+    ),
+]
+
+OUTPUT_RAILS = [
+    (
+        "malware_output",
+        re.compile(
+            r"\b(encrypt files|persistence|exfiltrate|payload|keylogger|ransom note)\b",
+            re.IGNORECASE,
+        ),
+    )
+]
+
+
+def run_input_guardrails(prompt: str) -> GuardrailResult:
+    for category, pattern in INPUT_RAILS:
+        if pattern.search(prompt):
+            return GuardrailResult(
+                allowed=False,
+                action=f"blocked_input:{category}",
+                message=(
+                    "I can't help with instructions that enable cyber abuse or physical harm. "
+                    "I can help with defensive guidance, detection, prevention, or incident response."
+                ),
+            )
+    return GuardrailResult(allowed=True, action="allowed")
+
+
+def run_output_guardrails(text: str) -> GuardrailResult:
+    for category, pattern in OUTPUT_RAILS:
+        if pattern.search(text):
+            return GuardrailResult(
+                allowed=False,
+                action=f"blocked_output:{category}",
+                message=(
+                    "I can't provide operational harmful instructions. "
+                    "I can summarize the risk at a high level or suggest defensive mitigations."
+                ),
+            )
+    return GuardrailResult(allowed=True, action="allowed")
+
+
+def should_use_web_search(prompt: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(search|web|latest|current|today|news|source|sources|pricing|price)\b",
+            prompt,
+            re.IGNORECASE,
+        )
+    )
+
+
+def search_web(query: str, max_results: int = 3) -> list[dict[str, str]]:
+    from ddgs import DDGS
+
+    results = []
+    with DDGS() as ddgs:
+        for item in ddgs.text(query, max_results=max_results):
+            results.append(
+                {
+                    "title": str(item.get("title", "")),
+                    "url": str(item.get("href", "")),
+                    "snippet": str(item.get("body", ""))[:300],
+                }
+            )
+    return results
+
+
+def search_results_to_context(results: list[dict[str, str]]) -> str:
+    lines = ["Use these web search results when relevant. Cite URLs in the answer."]
+    for index, result in enumerate(results, start=1):
+        lines.append(
+            f"{index}. {result['title']}\nURL: {result['url']}\nSnippet: {result['snippet']}"
+        )
+    return "\n\n".join(lines)
 
 
 def oss_device_index() -> int | None:
@@ -253,27 +395,119 @@ def call_oss_api(
 
 
 def generate_oss_response(request: GenerateRequest) -> GenerateResponse:
+    trace_id = str(uuid.uuid4())
     model_name = default_model_name("oss")
-    llm = build_llm("oss", model_name, request.max_tokens, request.temperature)
-    messages = [
-        SystemMessage(content=request.system_prompt or SYSTEM_PROMPT),
-        *ui_history_to_messages(request.history, request.max_turns),
-        HumanMessage(content=request.prompt),
-    ]
-
     start = time.perf_counter()
-    answer = message_to_text(llm.invoke(messages))
-    latency_ms = round((time.perf_counter() - start) * 1000)
-    output_tokens = estimate_token_count(answer)
-    tokens_per_second = output_tokens / max(latency_ms / 1000, 0.001)
+    tool_calls: list[dict[str, Any]] = []
 
-    return GenerateResponse(
-        text=answer,
-        model=model_name,
-        latency_ms=latency_ms,
-        estimated_output_tokens=output_tokens,
-        tokens_per_second=round(tokens_per_second, 2),
-    )
+    with tracer.start_as_current_span("generate") as span:
+        span.set_attribute("trace_id", trace_id)
+        span.set_attribute("model", model_name)
+        span.set_attribute("max_tokens", request.max_tokens)
+        span.set_attribute("temperature", request.temperature)
+        span.set_attribute("web_search.enabled", request.enable_web_search)
+
+        guardrail = run_input_guardrails(request.prompt)
+        span.set_attribute("guardrail.input_action", guardrail.action)
+        if not guardrail.allowed:
+            latency_ms = max(1, round((time.perf_counter() - start) * 1000))
+            output_tokens = estimate_token_count(guardrail.message)
+            logger.info(
+                "observability_event=%s",
+                json.dumps(
+                    {
+                        "trace_id": trace_id,
+                        "event": "guardrail_block",
+                        "action": guardrail.action,
+                        "latency_ms": latency_ms,
+                    }
+                ),
+            )
+            return GenerateResponse(
+                text=guardrail.message,
+                model=model_name,
+                latency_ms=latency_ms,
+                estimated_output_tokens=output_tokens,
+                tokens_per_second=0.0,
+                guardrail_action=guardrail.action,
+                tool_calls=tool_calls,
+                trace_id=trace_id,
+            )
+
+        messages = [
+            SystemMessage(content=request.system_prompt or SYSTEM_PROMPT),
+            *ui_history_to_messages(request.history, request.max_turns),
+        ]
+
+        if request.enable_web_search and should_use_web_search(request.prompt):
+            with tracer.start_as_current_span("tool.web_search") as tool_span:
+                try:
+                    search_results = search_web(request.prompt)
+                    tool_error = ""
+                except Exception as exc:
+                    search_results = []
+                    tool_error = str(exc)
+                tool_calls.append(
+                    {
+                        "name": "web_search",
+                        "query": request.prompt,
+                        "result_count": len(search_results),
+                        "results": search_results,
+                        "error": tool_error,
+                    }
+                )
+                tool_span.set_attribute("tool.name", "web_search")
+                tool_span.set_attribute("tool.result_count", len(search_results))
+                if tool_error:
+                    tool_span.set_attribute("tool.error", tool_error)
+                if search_results:
+                    messages.append(SystemMessage(content=search_results_to_context(search_results)))
+
+        messages.append(HumanMessage(content=request.prompt))
+
+        with tracer.start_as_current_span("llm.invoke") as llm_span:
+            llm = build_llm("oss", model_name, request.max_tokens, request.temperature)
+            answer = message_to_text(llm.invoke(messages))
+            llm_span.set_attribute("output.estimated_tokens", estimate_token_count(answer))
+
+        output_guardrail = run_output_guardrails(answer)
+        span.set_attribute("guardrail.output_action", output_guardrail.action)
+        if not output_guardrail.allowed:
+            answer = output_guardrail.message
+
+        latency_ms = max(1, round((time.perf_counter() - start) * 1000))
+        output_tokens = estimate_token_count(answer)
+        tokens_per_second = output_tokens / max(latency_ms / 1000, 0.001)
+        guardrail_action = (
+            output_guardrail.action if not output_guardrail.allowed else guardrail.action
+        )
+
+        logger.info(
+            "observability_event=%s",
+            json.dumps(
+                {
+                    "trace_id": trace_id,
+                    "event": "generation",
+                    "model": model_name,
+                    "latency_ms": latency_ms,
+                    "estimated_output_tokens": output_tokens,
+                    "tokens_per_second": round(tokens_per_second, 2),
+                    "guardrail_action": guardrail_action,
+                    "tool_calls": [tool_call["name"] for tool_call in tool_calls],
+                }
+            ),
+        )
+
+        return GenerateResponse(
+            text=answer,
+            model=model_name,
+            latency_ms=latency_ms,
+            estimated_output_tokens=output_tokens,
+            tokens_per_second=round(tokens_per_second, 2),
+            guardrail_action=guardrail_action,
+            tool_calls=tool_calls,
+            trace_id=trace_id,
+        )
 
 
 @app.on_event("startup")
@@ -290,6 +524,9 @@ def root() -> dict[str, str]:
         "model": default_model_name("oss"),
         "docs": "/docs",
         "generate": "POST /generate",
+        "observability": "OpenTelemetry spans + structured JSON logs",
+        "guardrails": "input and output safety rails",
+        "tools": "optional web_search via enable_web_search=true",
     }
 
 
