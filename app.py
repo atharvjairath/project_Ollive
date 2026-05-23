@@ -470,6 +470,15 @@ def generate_oss_response(request: GenerateRequest) -> GenerateResponse:
             answer = message_to_text(llm.invoke(messages))
             llm_span.set_attribute("output.estimated_tokens", estimate_token_count(answer))
 
+        source_lines = []
+        for tool_call in tool_calls:
+            if tool_call["name"] == "web_search":
+                for result in tool_call.get("results", []):
+                    if result.get("title") and result.get("url"):
+                        source_lines.append(f"- {result['title']}: {result['url']}")
+        if source_lines:
+            answer = f"{answer}\n\nSources:\n" + "\n".join(source_lines)
+
         output_guardrail = run_output_guardrails(answer)
         span.set_attribute("guardrail.output_action", output_guardrail.action)
         if not output_guardrail.allowed:
