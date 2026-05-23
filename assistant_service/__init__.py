@@ -1,16 +1,12 @@
-from __future__ import annotations
-
-from assistant_service import (
-    GenerateRequest,
-    GenerateResponse,
+from assistant_service.api import app, generate_oss_response
+from assistant_service.cli import main
+from assistant_service.models import (
     answer_from_history,
-    app,
     clean_model_output,
     default_model_name,
     download_oss_model,
-    generate_oss_response,
-    main,
 )
+from assistant_service.schemas import GenerateRequest, GenerateResponse
 
 __all__ = [
     "GenerateRequest",
@@ -23,7 +19,3 @@ __all__ = [
     "generate_oss_response",
     "main",
 ]
-
-
-if __name__ == "__main__":
-    main()

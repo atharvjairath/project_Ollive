@@ -128,7 +128,3 @@ The tradeoff is clear:
 | Hugging Face CPU Basic | Free public demo endpoint | Slow responses and poor tail latency |
 | Modal CPU | Low-cost serverless API | Better than HF CPU, still not ideal UX |
 | Modal T4 GPU | Fast interactive assistant API | Paid usage-based GPU cost |
-
-For the assignment, the strongest submission framing is:
-
-> The OSS model was deployed publicly on both Hugging Face Spaces and Modal. Hugging Face provides a zero-cost public endpoint, while Modal T4 provides a production-style serverless GPU endpoint with substantially better latency. This gives a concrete cost/performance tradeoff instead of only claiming that the model was deployed.

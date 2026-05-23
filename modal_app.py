@@ -14,6 +14,7 @@ image = (
     .pip_install("torch")
     .pip_install_from_requirements("requirements-deploy.txt")
     .env({"HF_HOME": MODEL_CACHE_PATH})
+    .add_local_python_source("assistant_service")
     .add_local_python_source("app")
 )
 

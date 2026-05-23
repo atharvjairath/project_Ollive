@@ -344,7 +344,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--use-judge", action="store_true")
     parser.add_argument("--judge-model", default="gemini-3.5-flash")
     parser.add_argument("--results-dir", default="evals/results")
-    parser.add_argument("--report-dir", default="evals/report")
+    parser.add_argument("--report-dir", default="reports")
     return parser.parse_args()
 
 
