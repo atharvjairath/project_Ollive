@@ -150,6 +150,7 @@ def answer_from_history(
     max_turns: int,
     max_tokens: int,
     temperature: float,
+    enable_web_search: bool = False,
 ) -> str:
     if backend == "oss" and os.getenv("OSS_API_URL"):
         return call_oss_api(
@@ -158,6 +159,7 @@ def answer_from_history(
             max_turns=max_turns,
             max_tokens=max_tokens,
             temperature=temperature,
+            enable_web_search=enable_web_search,
         )
 
     selected_model = oss_model if backend == "oss" else gemini_model
@@ -176,7 +178,30 @@ def call_oss_api(
     max_turns: int,
     max_tokens: int,
     temperature: float,
+    enable_web_search: bool = False,
 ) -> str:
+    return clean_model_output(
+        str(
+            call_oss_api_response(
+                user_message,
+                history,
+                max_turns=max_turns,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                enable_web_search=enable_web_search,
+            )["text"]
+        )
+    )
+
+
+def call_oss_api_response(
+    user_message: str,
+    history: list[dict[str, Any]],
+    max_turns: int,
+    max_tokens: int,
+    temperature: float,
+    enable_web_search: bool = False,
+) -> dict[str, Any]:
     api_url = os.environ["OSS_API_URL"].rstrip("/")
     payload = {
         "prompt": user_message,
@@ -188,6 +213,7 @@ def call_oss_api(
         "max_turns": max_turns,
         "max_tokens": max_tokens,
         "temperature": temperature,
+        "enable_web_search": enable_web_search,
     }
     body = json.dumps(payload).encode("utf-8")
     request = urlrequest.Request(
@@ -198,4 +224,5 @@ def call_oss_api(
     )
     with urlrequest.urlopen(request, timeout=120) as response:
         data = json.loads(response.read().decode("utf-8"))
-    return clean_model_output(str(data["text"]))
+    data["text"] = clean_model_output(str(data["text"]))
+    return data

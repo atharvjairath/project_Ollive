@@ -8,10 +8,19 @@ from typing import Any
 
 from assistant_service.models import (
     answer_from_history,
+    call_oss_api_response,
     default_model_name,
     download_oss_model,
     estimate_token_count,
 )
+from assistant_service.tools import (
+    search_results_to_context,
+    search_web,
+    should_use_web_search,
+)
+
+
+DEFAULT_OSS_API_URL = "https://atharv-jairath--qwen-oss-assistant-api-fastapi-app.modal.run"
 
 
 def launch_ui(args: Any) -> None:
@@ -65,6 +74,21 @@ def render_streamlit_ui() -> None:
         if api_key:
             os.environ["GEMINI_API_KEY"] = api_key
 
+        oss_api_url = st.text_input(
+            "OSS API URL",
+            value=os.getenv("OSS_API_URL", DEFAULT_OSS_API_URL),
+        )
+        if oss_api_url:
+            os.environ["OSS_API_URL"] = oss_api_url.rstrip("/")
+
+        enable_web_search = st.checkbox(
+            "Enable web search",
+            value=False,
+            help="Searches the web for prompts that need current or external information.",
+        )
+        if enable_web_search:
+            st.caption("Search triggers on prompts with words like latest, current, today, news, search, or price.")
+
         max_turns = st.slider("Memory turns", 1, 12, 6)
         max_tokens = st.slider("Max tokens", 256, 4096, 1024, step=128)
         temperature = st.slider("Temperature", 0.0, 1.5, 0.7, step=0.1)
@@ -99,6 +123,8 @@ def render_streamlit_ui() -> None:
     st.title("Assistant Comparison")
     st.caption("Multi-turn personal assistant using LangChain memory and swappable models.")
     st.info(f"Active model: {backend_label} / {active_name}")
+    if enable_web_search:
+        st.caption("Web search is enabled for prompts that look current or search-like.")
 
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
@@ -107,6 +133,9 @@ def render_streamlit_ui() -> None:
                 st.caption(f"Response time: {message['latency_ms'] / 1000:.2f}s")
             if message["role"] == "assistant" and message.get("tokens_per_second") is not None:
                 st.caption(f"Output speed: {message['tokens_per_second']:.1f} tokens/sec")
+            if message["role"] == "assistant" and message.get("tool_calls"):
+                tool_names = ", ".join(tool_call.get("name", "tool") for tool_call in message["tool_calls"])
+                st.caption(f"Tools used: {tool_names}")
 
     if prompt := st.chat_input("Ask the assistant..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
@@ -117,24 +146,59 @@ def render_streamlit_ui() -> None:
             with st.spinner("Thinking"):
                 start = time.perf_counter()
                 try:
-                    answer = answer_from_history(
-                        prompt,
-                        st.session_state.messages[:-1],
-                        backend,
-                        oss_model,
-                        gemini_model,
-                        max_turns,
-                        max_tokens,
-                        temperature,
-                    )
+                    tool_calls = []
+                    search_triggered = enable_web_search and should_use_web_search(prompt)
+                    if backend == "oss" and search_triggered and os.getenv("OSS_API_URL"):
+                        response = call_oss_api_response(
+                            prompt,
+                            st.session_state.messages[:-1],
+                            max_turns=max_turns,
+                            max_tokens=max_tokens,
+                            temperature=temperature,
+                            enable_web_search=True,
+                        )
+                        answer = response["text"]
+                        tool_calls = response.get("tool_calls", [])
+                    else:
+                        model_prompt = prompt
+                        if search_triggered:
+                            search_results = search_web(prompt)
+                            tool_calls = [
+                                {
+                                    "name": "web_search",
+                                    "query": prompt,
+                                    "result_count": len(search_results),
+                                    "results": search_results,
+                                }
+                            ]
+                            if search_results:
+                                model_prompt = (
+                                    f"{search_results_to_context(search_results)}\n\n"
+                                    f"User question: {prompt}"
+                                )
+                        answer = answer_from_history(
+                            model_prompt,
+                            st.session_state.messages[:-1],
+                            backend,
+                            oss_model,
+                            gemini_model,
+                            max_turns,
+                            max_tokens,
+                            temperature,
+                            enable_web_search=enable_web_search,
+                        )
                 except Exception as exc:
                     answer = f"Error: {exc}"
+                    tool_calls = []
                 latency_ms = round((time.perf_counter() - start) * 1000)
                 output_tokens = estimate_token_count(answer)
                 tokens_per_second_value = output_tokens / max(latency_ms / 1000, 0.001)
                 st.markdown(answer)
                 st.caption(f"Response time: {latency_ms / 1000:.2f}s")
                 st.caption(f"Output speed: {tokens_per_second_value:.1f} tokens/sec")
+                if tool_calls:
+                    tool_names = ", ".join(tool_call.get("name", "tool") for tool_call in tool_calls)
+                    st.caption(f"Tools used: {tool_names}")
 
         st.session_state.messages.append(
             {
@@ -143,6 +207,7 @@ def render_streamlit_ui() -> None:
                 "latency_ms": latency_ms,
                 "output_tokens": output_tokens,
                 "tokens_per_second": tokens_per_second_value,
+                "tool_calls": tool_calls,
             }
         )
         st.session_state.messages = st.session_state.messages[-max_turns * 2 :]

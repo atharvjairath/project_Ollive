@@ -111,6 +111,27 @@ GPU cost per average request ~= 1.61 * 0.000164 = $0.000264
 GPU cost per 1,000 requests ~= $0.26
 ```
 
+For easier planning, here is the same estimate converted into monthly traffic scenarios.
+
+| Scenario | Requests / Day | Requests / Month | Hugging Face CPU | Modal T4 GPU Compute |
+|---|---:|---:|---:|---:|
+| Demo / evaluator traffic | 100 | 3,000 | `$0` | `~$0.79/month` |
+| Light internal usage | 1,000 | 30,000 | `$0` | `~$7.92/month` |
+| Small production usage | 10,000 | 300,000 | `$0` | `~$79.20/month` |
+| Higher usage | 100,000 | 3,000,000 | `$0` | `~$792.00/month` |
+
+This is the most understandable estimate for the assignment because it ties cost to actual requests. It only includes Modal T4 GPU compute during measured generation time.
+
+For Modal CPU, using the same rough method and assuming `1 CPU + 2 GiB RAM`, the measured `7.41s` average latency gives an illustrative cost of about `$0.00013/request`, or about `$0.13 per 1,000 requests`. Real CPU cost depends on the exact CPU and memory allocation in Modal.
+
+Always-warm cost is different. A Modal T4 kept warm continuously would be approximately:
+
+```text
+$0.59 / hour * 730 hours/month ~= $431/month
+```
+
+The deployed app uses `scaledown_window=10 * 60`, so it is not intended to stay warm all month unless traffic keeps it active.
+
 This excludes Modal CPU and memory charges, which are smaller but still billed separately. It also excludes idle/warm container time from `scaledown_window=10 * 60`. For a production cost model, Modal dashboard usage should be used as the source of truth.
 
 Hugging Face CPU Basic has no direct hosting cost, but latency is much higher and tail latency is poor for interactive use.
