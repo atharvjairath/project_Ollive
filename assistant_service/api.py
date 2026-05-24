@@ -14,14 +14,13 @@ from assistant_service.models import (
     default_model_name,
     download_oss_model,
     estimate_token_count,
-    message_to_text,
+    invoke_with_optional_web_search,
     ui_history_to_messages,
 )
 from assistant_service.observability import logger, tracer
 from assistant_service.safety import run_input_guardrails, run_output_guardrails
 from assistant_service.schemas import GenerateRequest, GenerateResponse
 from assistant_service.settings import SYSTEM_PROMPT
-from assistant_service.tools import search_results_to_context, search_web, should_use_web_search
 
 
 app = FastAPI(
@@ -86,36 +85,18 @@ def generate_oss_response(request: GenerateRequest) -> GenerateResponse:
             *ui_history_to_messages(request.history, request.max_turns),
         ]
 
-        if request.enable_web_search and should_use_web_search(request.prompt):
-            with tracer.start_as_current_span("tool.web_search") as tool_span:
-                try:
-                    search_results = search_web(request.prompt)
-                    tool_error = ""
-                except Exception as exc:
-                    search_results = []
-                    tool_error = str(exc)
-                tool_calls.append(
-                    {
-                        "name": "web_search",
-                        "query": request.prompt,
-                        "result_count": len(search_results),
-                        "results": search_results,
-                        "error": tool_error,
-                    }
-                )
-                tool_span.set_attribute("tool.name", "web_search")
-                tool_span.set_attribute("tool.result_count", len(search_results))
-                if tool_error:
-                    tool_span.set_attribute("tool.error", tool_error)
-                if search_results:
-                    messages.append(SystemMessage(content=search_results_to_context(search_results)))
-
         messages.append(HumanMessage(content=request.prompt))
 
         with tracer.start_as_current_span("llm.invoke") as llm_span:
             llm = build_llm("oss", model_name, request.max_tokens, request.temperature)
-            answer = message_to_text(llm.invoke(messages))
+            answer, tool_calls = invoke_with_optional_web_search(
+                llm=llm,
+                messages=messages,
+                user_prompt=request.prompt,
+                enable_web_search=request.enable_web_search,
+            )
             llm_span.set_attribute("output.estimated_tokens", estimate_token_count(answer))
+            llm_span.set_attribute("tool.call_count", len(tool_calls))
 
         source_footer = build_tool_source_footer(tool_calls)
         if source_footer:

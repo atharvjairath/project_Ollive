@@ -12,6 +12,14 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from assistant_service.settings import SYSTEM_PROMPT, default_model_name
+from assistant_service.tools import (
+    WEB_SEARCH_TOOLS,
+    run_web_search_tool_call,
+    search_results_to_context,
+    search_web,
+    should_use_web_search,
+    tool_calls_from_message,
+)
 
 
 @dataclass
@@ -152,8 +160,32 @@ def answer_from_history(
     temperature: float,
     enable_web_search: bool = False,
 ) -> str:
+    return answer_from_history_response(
+        user_message,
+        history,
+        backend,
+        oss_model,
+        gemini_model,
+        max_turns,
+        max_tokens,
+        temperature,
+        enable_web_search=enable_web_search,
+    )["text"]
+
+
+def answer_from_history_response(
+    user_message: str,
+    history: list[dict[str, Any]],
+    backend: str,
+    oss_model: str,
+    gemini_model: str,
+    max_turns: int,
+    max_tokens: int,
+    temperature: float,
+    enable_web_search: bool = False,
+) -> dict[str, Any]:
     if backend == "oss" and os.getenv("OSS_API_URL"):
-        return call_oss_api(
+        return call_oss_api_response(
             user_message,
             history,
             max_turns=max_turns,
@@ -169,7 +201,74 @@ def answer_from_history(
         *ui_history_to_messages(history, max_turns),
         HumanMessage(content=user_message),
     ]
-    return message_to_text(llm.invoke(messages))
+    answer, tool_calls = invoke_with_optional_web_search(
+        llm=llm,
+        messages=messages,
+        user_prompt=user_message,
+        enable_web_search=enable_web_search,
+    )
+    return {
+        "text": answer,
+        "model": selected_model,
+        "tool_calls": tool_calls,
+    }
+
+
+def invoke_with_optional_web_search(
+    llm: BaseChatModel,
+    messages: list[BaseMessage],
+    user_prompt: str,
+    enable_web_search: bool,
+) -> tuple[str, list[dict[str, Any]]]:
+    if not enable_web_search:
+        return message_to_text(llm.invoke(messages)), []
+
+    tool_instruction = SystemMessage(
+        content=(
+            "You have access to a web_search tool. Use it when the user asks for current, latest, "
+            "recent, news, pricing, source-backed, or external information. Do not claim you lack "
+            "internet access before considering the tool."
+        )
+    )
+    tool_messages = [tool_instruction, *messages]
+
+    try:
+        tool_bound_llm = llm.bind_tools(WEB_SEARCH_TOOLS)
+        first_response = tool_bound_llm.invoke(tool_messages)
+        requested_tool_calls = tool_calls_from_message(first_response)
+        if requested_tool_calls:
+            executed_tool_messages = []
+            executed_tool_calls = []
+            for tool_call in requested_tool_calls:
+                if tool_call.get("name") != "web_search":
+                    continue
+                tool_message, metadata = run_web_search_tool_call(tool_call, user_prompt)
+                executed_tool_messages.append(tool_message)
+                executed_tool_calls.append(metadata)
+            if executed_tool_messages:
+                final_response = tool_bound_llm.invoke(
+                    [*tool_messages, first_response, *executed_tool_messages]
+                )
+                return message_to_text(final_response), executed_tool_calls
+        return message_to_text(first_response), []
+    except Exception:
+        if not should_use_web_search(user_prompt):
+            return message_to_text(llm.invoke(messages)), []
+        results = search_web(user_prompt)
+        fallback_messages = [
+            SystemMessage(content=search_results_to_context(results)),
+            *messages,
+        ]
+        tool_calls = [
+            {
+                "name": "web_search",
+                "query": user_prompt,
+                "result_count": len(results),
+                "results": results,
+                "fallback": "keyword_router",
+            }
+        ]
+        return message_to_text(llm.invoke(fallback_messages)), tool_calls
 
 
 def call_oss_api(

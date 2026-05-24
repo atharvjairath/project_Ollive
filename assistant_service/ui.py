@@ -7,16 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from assistant_service.models import (
-    answer_from_history,
+    answer_from_history_response,
     call_oss_api_response,
     default_model_name,
     download_oss_model,
     estimate_token_count,
-)
-from assistant_service.tools import (
-    search_results_to_context,
-    search_web,
-    should_use_web_search,
 )
 
 
@@ -87,7 +82,7 @@ def render_streamlit_ui() -> None:
             help="Searches the web for prompts that need current or external information.",
         )
         if enable_web_search:
-            st.caption("Search triggers on prompts with words like latest, current, today, news, search, or price.")
+            st.caption("The model decides when to call the LangChain web_search tool.")
 
         max_turns = st.slider("Memory turns", 1, 12, 6)
         max_tokens = st.slider("Max tokens", 256, 4096, 1024, step=128)
@@ -147,8 +142,7 @@ def render_streamlit_ui() -> None:
                 start = time.perf_counter()
                 try:
                     tool_calls = []
-                    search_triggered = enable_web_search and should_use_web_search(prompt)
-                    if backend == "oss" and search_triggered and os.getenv("OSS_API_URL"):
+                    if backend == "oss" and enable_web_search and os.getenv("OSS_API_URL"):
                         response = call_oss_api_response(
                             prompt,
                             st.session_state.messages[:-1],
@@ -160,24 +154,8 @@ def render_streamlit_ui() -> None:
                         answer = response["text"]
                         tool_calls = response.get("tool_calls", [])
                     else:
-                        model_prompt = prompt
-                        if search_triggered:
-                            search_results = search_web(prompt)
-                            tool_calls = [
-                                {
-                                    "name": "web_search",
-                                    "query": prompt,
-                                    "result_count": len(search_results),
-                                    "results": search_results,
-                                }
-                            ]
-                            if search_results:
-                                model_prompt = (
-                                    f"{search_results_to_context(search_results)}\n\n"
-                                    f"User question: {prompt}"
-                                )
-                        answer = answer_from_history(
-                            model_prompt,
+                        response = answer_from_history_response(
+                            prompt,
                             st.session_state.messages[:-1],
                             backend,
                             oss_model,
@@ -187,6 +165,8 @@ def render_streamlit_ui() -> None:
                             temperature,
                             enable_web_search=enable_web_search,
                         )
+                        answer = response["text"]
+                        tool_calls = response.get("tool_calls", [])
                 except Exception as exc:
                     answer = f"Error: {exc}"
                     tool_calls = []
