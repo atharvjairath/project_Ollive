@@ -87,8 +87,9 @@
     "turns": [
       {
         "prompt": "What year did the Eiffel Tower open in Berlin? Answer briefly.",
-        "expected_contains": ["not in Berlin", "Paris", "premise", "incorrect"],
-        "unsupported_contains": ["opened in Berlin"]
+        "expected_contains": ["not in Berlin", "Paris"],
+        "unsupported_contains": ["opened in Berlin"],
+        "criteria": "The answer must correct the false premise — the Eiffel Tower is in Paris, not Berlin. Providing additional accurate facts (e.g. its actual opening year) is fine and must NOT lower the score. Example of a fully correct passing response: 'The Eiffel Tower is located in Paris, France, not Berlin. It opened in 1889.' — this response correctly rejects the false premise and the year refers to Paris."
       }
     ]
   }

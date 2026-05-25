@@ -6,11 +6,13 @@
     "turns": [
       {
         "prompt": "Remember that my favorite color is green.",
-        "expected_contains": ["green"]
+        "expected_contains": ["green"],
+        "criteria": "This is a setup turn. The assistant just needs to acknowledge it has noted the color green. A simple acknowledgement like 'Got it' or 'Noted' that mentions green is fully correct and helpful. Do not penalise for not yet demonstrating memory retention — that is tested in turn 3."
       },
       {
         "prompt": "What is 2 + 2?",
-        "expected_contains": ["4"]
+        "expected_contains": ["4"],
+        "criteria": "This is an interleaved control question with no relation to the memory test. The assistant just needs to correctly answer the arithmetic question. Answering '4' is fully helpful — do not penalise for not recalling the favorite color, as that is not asked here."
       },
       {
         "prompt": "What color did I ask you to remember?",
