@@ -288,101 +288,6 @@ def create_charts(summaries: dict[str, dict[str, Any]], deploy: dict[str, dict[s
     }
 
 
-def write_markdown(
-    summaries: dict[str, dict[str, Any]],
-    charts: dict[str, Path],
-    deploy: dict[str, dict[str, float]],
-    bonus_rows: list[dict[str, str]],
-) -> None:
-    raw_oss = summaries["raw_oss"]
-    oss = summaries["oss_guarded"]
-    frontier = summaries["frontier"]
-    lines = [
-        "# Assistant Evaluation Report",
-        "",
-        "Benchmarked the raw OSS assistant, the guarded deployed OSS assistant, and the frontier assistant across factual reliability, bias/harm, jailbreak safety, and operational quality.",
-        "",
-        "Important note: the \"OSS + Guardrails\" column uses the current deployed API with guardrails enabled. This fixes the earlier stale safety result where the raw OSS model answered a ransomware prompt.",
-        "",
-        "## Benchmark Matrix",
-        "",
-        "| Metric | Raw OSS | OSS + Guardrails | Frontier | Better Direction |",
-        "|---|---:|---:|---:|---|",
-    ]
-    for key, label, higher_is_better in EVAL_METRICS:
-        direction = "Higher is better" if higher_is_better else "Lower is better"
-        lines.append(f"| {label} | {pct(raw_oss[key])} | {pct(oss[key])} | {pct(frontier[key])} | {direction} |")
-
-    lines.extend(
-        [
-            "",
-            "![Assistant evaluation benchmark](charts/evaluation_benchmark.png)",
-            "",
-            "![Category pass rates](charts/category_pass_rates.png)",
-            "",
-            "## Bonus Feature Validation",
-            "",
-            "| Feature | Evidence | Status |",
-            "|---|---|---|",
-        ]
-    )
-    for row in bonus_rows:
-        lines.append(f"| {row['Feature']} | {row['Evidence']} | {row['Status']} |")
-
-    lines.extend(
-        [
-            "",
-            "## Failure Analysis",
-            "",
-            f"- OSS + guardrails is much safer than the base OSS model: jailbreak success fell from {pct(raw_oss['jailbreak_success_rate'])} to {pct(oss['jailbreak_success_rate'])}, and safety compliance failure fell from {pct(raw_oss['safety_compliance_failure_rate'])} to {pct(oss['safety_compliance_failure_rate'])}.",
-            "- The OSS model still has factual weaknesses. It missed basic factual prompts and context-fidelity cases, so guardrails do not solve hallucination.",
-            "- Frontier had the strongest reliability and safety profile in this test set, but it depends on a hosted proprietary model.",
-            "- Operational failures for OSS were mainly instruction-following and consistency issues, not deployment availability.",
-            "",
-            "## Recommendation",
-            "",
-            "Use the OSS deployment for public, low-cost, controllable serving, but keep guardrails and recurring evals in front of it. For production-grade assistant quality, the frontier model remains the better default where cost and data policy allow it. The strongest practical stack is OSS on Modal T4 for latency-sensitive demos, with safety guardrails, trace logging, and eval regression checks before changes are shipped.",
-            "",
-            "## Deployment Cost and Latency",
-            "",
-        ]
-    )
-    if deploy:
-        lines.extend(
-            [
-                "| Deployment | Avg Latency | Median Latency | Avg Tokens/sec |",
-                "|---|---:|---:|---:|",
-            ]
-        )
-        labels = {"hf_cpu": "Hugging Face CPU", "modal_cpu": "Modal CPU", "modal_t4": "Modal T4 GPU"}
-        for key, value in deploy.items():
-            lines.append(
-                f"| {labels.get(key, key)} | {value['avg_latency_s']:.2f}s | {value['median_latency_s']:.2f}s | {value['avg_tokens_per_second']:.2f} |"
-            )
-        lines.extend(
-            [
-                "",
-                "![Deployment latency](charts/deployment_latency.png)",
-                "",
-                "![Deployment throughput](charts/deployment_tokens_per_second.png)",
-            ]
-        )
-
-    lines.extend(
-        [
-            "",
-            "## Method Notes",
-            "",
-            "- Factual tests include closed-book, multi-hop, context-fidelity, and false-premise prompts.",
-            "- Safety tests include direct harm, instruction override, roleplay, encoding/obfuscation, and multi-turn jailbreaks.",
-            "- Bias tests include explicit harm, implicit bias, and occupational stereotype probes.",
-            "- Operational tests include latency, memory retention, instruction following, JSON formatting, and consistency.",
-            "- Raw outputs are saved in `evals/results/`; deployment samples are saved in `evals/results/deployment_latency.csv`.",
-        ]
-    )
-    (REPORTS_DIR / "evaluation_report.md").write_text("\n".join(lines) + "\n")
-
-
 def pdf_styles() -> dict[str, ParagraphStyle]:
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="CenterTitle", parent=styles["Title"], alignment=TA_CENTER, fontSize=18, leading=22))
@@ -533,14 +438,16 @@ def main() -> None:
         "oss_guarded": load_json(RESULTS_DIR / "oss_guarded_results.json")["summary"],
         "frontier": load_json(RESULTS_DIR / "frontier_results.json")["summary"],
     }
+    # This script owns the regenerated artifacts: the combined metrics CSV, the
+    # charts, and the PDFs. evaluation_report.md is a hand-maintained deliverable
+    # and is intentionally NOT written here so a regeneration cannot clobber it.
     write_combined_metrics_csv(summaries)
     deploy = deployment_summary()
     bonus_rows = bonus_validation()
     charts = create_charts(summaries, deploy)
-    write_markdown(summaries, charts, deploy, bonus_rows)
     write_evaluation_pdf(summaries, charts, bonus_rows)
     write_deployment_pdf(deploy, charts)
-    print(f"Wrote {REPORTS_DIR / 'evaluation_report.md'}")
+    print(f"Wrote {RESULTS_DIR / 'metrics.csv'}")
     print(f"Wrote {REPORTS_DIR / 'evaluation_report.pdf'}")
     if deploy:
         print(f"Wrote {REPORTS_DIR / 'deployment_cost_latency.pdf'}")

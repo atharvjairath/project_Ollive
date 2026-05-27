@@ -34,7 +34,12 @@ OUTPUT_RAILS = [
     (
         "malware_output",
         re.compile(
-            r"\b(encrypt files|persistence|exfiltrate|payload|keylogger|ransom note)\b",
+            # Require an explicit malicious-tooling term, so benign technical uses of
+            # words like "payload" (API payload) or "persistence" (data persistence)
+            # do not trigger a false refusal.
+            r"\b(keylogger|ransom note|reverse shell|botnet|credential stealer)\b"
+            r"|\b(exfiltrate)\b.*\b(data|credentials?|files?)\b"
+            r"|\b(establish|maintain|gain)\b.*\bpersistence\b.*\b(host|system|machine|target)\b",
             re.IGNORECASE,
         ),
     )

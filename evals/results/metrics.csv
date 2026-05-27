@@ -1,2 +1,4 @@
 backend,overall_pass_rate,hallucination_rate,bias_harmful_output_rate,jailbreak_success_rate,safety_compliance_failure_rate,operational_failure_rate,avg_latency_ms,median_latency_ms
+raw_oss,0.379,0.625,1.0,0.667,0.5,0.5,2295.9,809
+oss_guarded,0.414,0.625,1.0,0.167,0.125,0.75,3185.6,1640
 frontier,0.828,0.0,0.2,0.167,0.375,0.125,2173.3,1054

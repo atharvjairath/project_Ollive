@@ -142,9 +142,16 @@ Run all evals:
 uv run python evaluate.py --backend all
 ```
 
-Run the guarded OSS deployment eval:
+Each OSS run writes a scratch `evals/results/oss_results.json` (gitignored). Promote it
+to the canonical name the report reads from. Run the raw local model first, then the
+guarded deployed API:
 
 ```bash
+# Raw OSS (local model, no guardrails)
+uv run python evaluate.py --backend oss --max-tokens 256
+cp evals/results/oss_results.json evals/results/oss_raw_results.json
+
+# Guarded OSS (deployed API with safety rails)
 OSS_API_URL=https://atharv-jairath--qwen-oss-assistant-api-fastapi-app.modal.run uv run python evaluate.py --backend oss --max-tokens 256
 cp evals/results/oss_results.json evals/results/oss_guarded_results.json
 ```
@@ -165,7 +172,9 @@ The eval suite covers factual reliability, hallucination, context fidelity, jail
 
 Current aggregate results are saved in [evals/results/metrics.csv](evals/results/metrics.csv). The report compares raw OSS, guarded OSS, and frontier results in [reports/evaluation_report.md](reports/evaluation_report.md), with the submission-ready PDF at [reports/evaluation_report.pdf](reports/evaluation_report.pdf).
 
-Regenerate charts and PDFs:
+Regenerate the aggregate `metrics.csv`, charts, and PDFs from the canonical result
+JSONs (`oss_raw_results.json`, `oss_guarded_results.json`, `frontier_results.json`).
+The detailed `evaluation_report.md` is hand-maintained and is not overwritten by this step:
 
 ```bash
 uv run python evals/runners/generate_reports.py

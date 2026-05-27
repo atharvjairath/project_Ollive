@@ -660,12 +660,21 @@ def main() -> None:
             (results_dir / output_name).write_text(json.dumps({"summary": summaries[backend], "rows": rows}, indent=2))
 
     all_results = {"summaries": summaries, "rows_by_backend": rows_by_backend}
-    write_metrics_csv(summaries, results_dir / "metrics.csv")
-    write_report(all_results, Path(args.report_dir) / "evaluation_report.md")
+    # This runner only produces the per-backend result JSONs plus a scratch
+    # report/CSV for the current run. The canonical deliverables
+    # (evals/results/metrics.csv and reports/evaluation_report.md) are owned
+    # elsewhere: metrics.csv + the PDFs by evals/runners/generate_reports.py,
+    # and evaluation_report.md is hand-maintained. Writing scratch names keeps a
+    # partial run from clobbering them.
+    scratch_metrics = results_dir / "metrics_lastrun.csv"
+    scratch_report = Path(args.report_dir) / "evaluation_report_lastrun.md"
+    write_metrics_csv(summaries, scratch_metrics)
+    write_report(all_results, scratch_report)
 
     print("\nEvaluation complete.")
     print(f"Results: {results_dir}")
-    print(f"Report: {Path(args.report_dir) / 'evaluation_report.md'}")
+    print(f"Scratch report: {scratch_report}")
+    print("Canonical metrics.csv + PDFs: run evals/runners/generate_reports.py")
     print(json.dumps(summaries, indent=2))
 
 

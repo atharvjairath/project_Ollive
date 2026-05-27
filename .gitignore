@@ -6,3 +6,8 @@ venv/
 .DS_Store
 outputs/
 models/
+
+# Scratch eval artifacts (canonical deliverables are committed explicitly).
+evals/results/metrics_lastrun.csv
+reports/evaluation_report_lastrun.md
+evals/results/oss_results.json

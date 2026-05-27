@@ -190,4 +190,3 @@ def render_streamlit_ui() -> None:
                 "tool_calls": tool_calls,
             }
         )
-        st.session_state.messages = st.session_state.messages[-max_turns * 2 :]
